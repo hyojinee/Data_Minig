@@ -1,0 +1,251 @@
+#모델2
+*multiple imputation data set;
+proc import datafile="/folders/myfolders/결측치대체.csv" out=data_out dbms=csv replace;
+getnames=no;
+datarow=2;
+run;
+data model;
+set data_out;
+x1=input(var3,1.);
+x2=input(var4,1.);
+x3=var5;
+x4=var6;
+x5=input(var7,1.);
+x6=var8;
+x7=input(var9,1.);
+x8=input(var10,1.);
+x9=input(var11,1.);
+x10=input(var12,1.);
+x11=input(var13,1.);
+x12=input(var14,1.);
+x13=input(var15,1.);
+y=input(var2,1.);
+run;
+
+data model2;
+set model(drop=var1-var15);
+run;
+
+*new variable;
+data model3;
+set model2;
+var1=x8-x9;
+if var1<0 then var1=.;
+run;
+
+*drop variables;
+data model3;
+set model3(drop=x8 x9);
+run;
+
+*logistic stepwise selection;
+proc logistic data=model3;
+class x1-x7 x10-x13 var1;
+model y=x1-x7 x10-x13 var1/selection=stepwise details;
+run;
+
+data model4;
+set model3(drop=x6);
+run;
+
+*split test and training data;
+data model5;
+set model4;
+if ranuni(5555) <0.7 then split=1;
+else split=.;
+records=1;
+run;
+
+*logisitc regression analysis;
+proc logistic data=model5 descending;
+class x1-x5 x7 x10-x13 var1;
+model y=x1-x5 x7 x10-x13 var1;
+output out=model5_out pred=pred;
+run;
+
+proc sort data=model5_out;
+by descending pred;
+run;
+
+*decile analysis using training data;
+proc univariate data=model5_out(where=(split=1));
+var pred y;
+output out=preddata sumwgt=sumwgt;
+run;
+
+data model5_dec;
+set model5_out(where=(split=1));
+if (_n_=1) then set preddata;
+retain sumwgt;
+number =_n_;
+if number < .1*sumwgt then dec=0; else
+if number < .2*sumwgt then dec=1; else
+if number < .3*sumwgt then dec=2; else
+if number < .4*sumwgt then dec=3; else
+if number < .5*sumwgt then dec=4; else
+if number < .6*sumwgt then dec=5; else
+if number < .7*sumwgt then dec=6; else
+if number < .8*sumwgt then dec=7; else
+if number < .9*sumwgt then dec=8; else
+dec=9;
+run;
+
+proc tabulate data=model5_dec;
+class dec;
+var y pred records;
+table dec='Decile' all='Total',
+	records='Prospects'*sum=''*f=comma10.
+	pred='Predicted Probability'*(mean='')
+	y='percent Income'*(mean='')
+	/rts=9 row=float;
+run;
+
+proc freq data=model5_dec;
+table dec*y;
+run;
+
+*decile analysis using test data;
+proc univariate data=model5_out(where=(split=.));
+var pred y;
+output out=preddata sumwgt=sumwgt;
+run;
+
+data model5_dec;
+set model5_out(where=(split=.));
+if (_n_=1) then set preddata;
+retain sumwgt;
+number =_n_;
+if number < .1*sumwgt then dec=0; else
+if number < .2*sumwgt then dec=1; else
+if number < .3*sumwgt then dec=2; else
+if number < .4*sumwgt then dec=3; else
+if number < .5*sumwgt then dec=4; else
+if number < .6*sumwgt then dec=5; else
+if number < .7*sumwgt then dec=6; else
+if number < .8*sumwgt then dec=7; else
+if number < .9*sumwgt then dec=8; else
+dec=9;
+run;
+
+proc tabulate data=model5_dec;
+class dec;
+var y pred records;
+table dec='Decile' all='Total',
+	records='Prospects'*sum=''*f=comma10.
+	pred='Predicted Probability'*(mean='')
+	y='percent Income'*(mean='')
+	/rts=9 row=float;
+run;
+
+proc freq data=model5_dec;
+table dec*y;
+run;
+
+*resampling-jacknife;
+proc logistic data=model5 descending;
+class x1 x2 x3 x4 x5 x7 x10 x11 x12 x13 var1;
+model y=x1 x2 x3 x4 x5 x7 x10 x11 x12 x13 var1;
+output out=model5_resamp(where=(split=.) keep=pred y records split) pred=pred;
+run;
+
+%macro jackknife;
+%do prcnt = 1 %to 100;
+data model5_out&prcnt;
+set model5_resamp;
+if .01*(&prcnt-1) < ranuni(5555) <.01*(&prcnt) then delete;
+run;
+proc sort data=model5_out&prcnt;
+by descending pred;
+run;
+
+proc univariate data=model5_out&prcnt noprint;
+var pred y;
+output out=preddata sumwgt=sumwgt;
+run;
+
+data model5_out&prcnt;
+set model5_out&prcnt;
+if (_n_ eq 1) then set preddata;
+retain sumwgt;
+number =_n_;
+if number < .1*sumwgt then dec=0; else
+if number < .2*sumwgt then dec=1; else
+if number < .3*sumwgt then dec=2; else
+if number < .4*sumwgt then dec=3; else
+if number < .5*sumwgt then dec=4; else
+if number < .6*sumwgt then dec=5; else
+if number < .7*sumwgt then dec=6; else
+if number < .8*sumwgt then dec=7; else
+if number < .9*sumwgt then dec=8; else
+dec=9;
+run;
+
+proc summary data=model5_out&prcnt;
+var y pred;
+class dec;
+output out=model5_jkmns&prcnt mean=actmn&prcnt prdmn&prcnt;
+run;
+
+data actomean(rename=(actmn&prcnt=actom&prcnt) drop=dec);
+set model5_jkmns&prcnt(where=(dec=.) keep=actmn&prcnt dec);
+run;
+
+data model5_jkmns&prcnt;
+set model5_jkmns&prcnt;
+if (_n_ eq 1) then set actomean;
+retain actom&prcnt;
+lftdmn&prcnt=100*actmn&prcnt/actom&prcnt;
+%end;
+%mend;
+%jackknife;
+
+%macro merge;
+data model5_jk_sum(keep=prdmjk lci_p uci_p actmjk lci_a uci_a lftmjk lci_l uci_l dec);
+merge 
+%do prcnt = 1 %to 100;
+model5_jkmns&prcnt 
+%end;
+;
+by dec;
+prdmjk=mean(of prdmn1-prdmn100);
+prdsdjk=std(of prdmn1-prdmn100);
+
+actmjk=mean(of actmn1-actmn100);
+actsdjk=std(of actmn1-actmn100);
+
+lftmjk=mean(of lftdmn1-lftdmn100);
+lftsdjk=std(of lftdmn1-lftdmn100);
+
+lci_p=prdmjk-1.96*actsdjk;
+uci_p=prdmjk+1.96*actsdjk;
+
+lci_a=actmjk-1.96*actsdjk;
+uci_a=actmjk+1.96*actsdjk;
+
+lci_l=lftmjk-1.96*lftsdjk;
+uci_l=lftmjk+1.96*lftsdjk;
+run;
+%mend;
+%merge;
+
+proc format;
+picture perc
+	low-high = '009.999%' (mult=10000);
+	
+proc tabulate data=model5_jk_sum;
+var prdmjk lci_p uci_p actmjk lci_a uci_a lftmjk lci_l uci_l;
+class dec;
+table (dec='Decil' all='Total'),
+(prdmjk='JK Est Prob'*mean=''*f=perc.
+lci_p='JK Lower CI Prob'*mean=''*f=perc.
+uci_p='JK Upper CI Prob'*mean=''*f=perc.
+
+actmjk='JK Est % active'*mean=''*f=perc.
+lci_a='JK Lower CI active'*mean=''*f=perc.
+uci_a='JK Lower CI active'*mean=''*f=perc.
+
+lftmjk='JK Est Lift'*mean=''*f=6.
+lci_l='JK Lower CI Lift'*mean=''*f=6.
+uci_l='JK Lower CI Lift'*mean=''*f=6.)
+/rts=6 row=float;
+run;
