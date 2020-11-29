@@ -1,4 +1,4 @@
-#모델2
+# 모델2 SAS코드
 *multiple imputation data set;
 proc import datafile="/folders/myfolders/결측치대체.csv" out=data_out dbms=csv replace;
 getnames=no;
